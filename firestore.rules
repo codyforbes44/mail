@@ -1,0 +1,96 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.ownerId;
+    }
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    function ownerIdUnchanged() {
+      return !('ownerId' in request.resource.data) || request.resource.data.ownerId == request.auth.uid;
+    }
+    function ownerIdUnchangedOrInbox() {
+      return (!('ownerId' in request.resource.data) || request.resource.data.ownerId == request.auth.uid) || 
+             (request.resource.data.folder == 'inbox' && request.resource.data.senderId == request.auth.uid);
+    }
+
+    function ownerIdNotModified() {
+      return !('ownerId' in request.resource.data) || request.resource.data.ownerId == resource.data.ownerId;
+    }
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "mailby3bi@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
+             data.role in ['user', 'admin'];
+    }
+
+    function isValidEmailDoc(data) {
+      return hasOnlyAllowedFields(['id', 'senderId', 'senderEmail', 'senderName', 'recipientEmail', 'subject', 'body', 'snippet', 'createdAt', 'read', 'folder', 'ownerId']) &&
+             (!('id' in data) || (data.id is string && data.id.size() <= 100)) &&
+             data.senderId is string && data.senderId.size() > 0 && data.senderId.size() < 100 &&
+             data.senderEmail is string && isValidEmail(data.senderEmail) &&
+             (!('senderName' in data) || (data.senderName is string && data.senderName.size() <= 100)) &&
+             data.recipientEmail is string && isValidEmail(data.recipientEmail) &&
+             data.subject is string && data.subject.size() <= 200 &&
+             data.body is string && data.body.size() <= 100000 &&
+             (!('snippet' in data) || (data.snippet is string && data.snippet.size() <= 500)) &&
+             data.createdAt is timestamp &&
+             (!('read' in data) || data.read is bool) &&
+             data.folder in ['inbox', 'sent', 'drafts', 'trash', 'archive'] &&
+             data.ownerId is string && data.ownerId.size() > 0 && data.ownerId.size() < 100;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+    match /emailToUid/{email} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid && email == request.auth.token.email;
+      allow update: if false;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && uidUnchanged() && ((isOwner(userId) && request.resource.data.role == 'user') || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && uidNotModified() && ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin());
+    }
+
+    match /emails/{emailId} {
+      allow get: if isAuthenticated() && (resource == null || resource.data.ownerId == request.auth.uid);
+      allow list: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+      allow create: if isAuthenticated() && isValidEmailDoc(request.resource.data) && ownerIdUnchangedOrInbox();
+      allow update: if isAuthenticated() && isValidEmailDoc(request.resource.data) && ownerIdNotModified() && resource.data.ownerId == request.auth.uid;
+      allow delete: if isAuthenticated() && resource.data.ownerId == request.auth.uid;
+    }
+  }
+}

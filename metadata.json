@@ -1,0 +1,5 @@
+{
+  "name": "3ʙɪ Mail",
+  "description": "A complete email app UI with Firebase Auth, Firestore, and Gemini AI features.",
+  "requestFramePermissions": []
+}
