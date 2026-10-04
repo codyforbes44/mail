@@ -1,6 +1,17 @@
-import { collection, doc, setDoc, updateDoc, deleteDoc, getDoc, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, deleteDoc, getDoc, getDocFromServer, query, where, orderBy, onSnapshot, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { Email, OperationType, FirestoreErrorInfo } from '../types';
+
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn("Firestore connection check: client is offline or backend is unreachable. Please verify your Firebase configuration.");
+    }
+  }
+}
+testConnection();
 
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
   const errInfo: FirestoreErrorInfo = {

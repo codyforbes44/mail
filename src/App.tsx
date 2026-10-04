@@ -3,7 +3,7 @@ import { auth, signInWithGmailScopes, handleRedirectResult, getStoredGmailToken,
 import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
 import { ensureUserProfile, subscribeToEmails, markAsRead, moveToTrash, archiveEmail, bulkUpdateEmails, permanentlyDeleteEmails } from './lib/firestore';
 import { Email } from './types';
-import { Search, User, MessageSquare, Loader2, Inbox, PenSquare, X } from 'lucide-react';
+import { Search, User, MessageSquare, Loader2, Inbox, PenSquare, X, AlertTriangle, ExternalLink } from 'lucide-react';
 import { importFromGmail } from './lib/gmail';
 import { Toaster, toast } from 'react-hot-toast';
 import { doc, updateDoc } from 'firebase/firestore';
@@ -28,6 +28,7 @@ function AppContent() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEmailIds, setSelectedEmailIds] = useState<Set<string>>(new Set());
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
   
   // Compose state for reply/forward
   const [composeTo, setComposeTo] = useState('');
@@ -45,8 +46,7 @@ function AppContent() {
           toast.success("Gmail connected! Click Sync to import emails.");
         }
       } catch (e: any) {
-        console.error("Error getting redirect result", e);
-        toast.error("Failed to recover sign-in state: " + (e.message || "Unknown error"));
+        console.warn("Redirect check status:", e?.message || e);
       }
     };
     checkRedirect();
@@ -323,6 +323,7 @@ function AppContent() {
   };
 
   const handleLogin = async () => {
+    setLoginError(null);
     const loginToast = toast.loading("Connecting to Google...");
     try {
       await signInWithGmailScopes();
@@ -330,8 +331,9 @@ function AppContent() {
     } catch (e: any) {
       toast.dismiss(loginToast);
       const errorMsg = e.message || "An error occurred during sign in.";
-      toast.error(errorMsg, { duration: 6000 });
-      console.error("Login error:", e);
+      setLoginError(errorMsg);
+      toast.error(errorMsg, { duration: 8000 });
+      console.warn("Login error:", e?.message || e);
     }
   };
 
@@ -340,17 +342,59 @@ function AppContent() {
   }
 
   if (!user) {
+    const isSuspendedKey = loginError?.includes('suspended') || loginError?.includes('permission-denied');
+
     return (
       <div className="min-h-screen flex flex-col items-center justify-center bg-gray-100 p-4">
+        <Toaster position="bottom-left" />
         <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
           <div className="w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mx-auto mb-6">
             <MessageSquare className="text-white w-8 h-8" />
           </div>
           <h1 className="text-3xl font-bold text-gray-900 mb-2">3ʙɪ Mail</h1>
-          <p className="text-gray-500 mb-8">Sign in to access your secure email.</p>
+          <p className="text-gray-500 mb-6">Sign in to access your secure email.</p>
+
+          {loginError && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-left">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="text-xs text-red-800 space-y-1">
+                  <p className="font-semibold text-red-900">
+                    {isSuspendedKey ? "Firebase API Key Suspended" : "Sign In Failed"}
+                  </p>
+                  <p>
+                    {isSuspendedKey 
+                      ? "The API key for Google Cloud project 'cf-03026' has been suspended by Google Cloud. This happens if project billing is paused or the API key has been disabled in the Google Cloud Console."
+                      : loginError}
+                  </p>
+                  {isSuspendedKey && (
+                    <div className="pt-2 flex flex-col gap-1.5 border-t border-red-200 mt-2">
+                      <a
+                        href="https://console.cloud.google.com/apis/credentials?project=cf-03026"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium"
+                      >
+                        Check Google Cloud Credentials <ExternalLink className="w-3 h-3" />
+                      </a>
+                      <a
+                        href="https://console.firebase.google.com/project/cf-03026"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-blue-600 hover:underline font-medium"
+                      >
+                        Check Firebase Console <ExternalLink className="w-3 h-3" />
+                      </a>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <button 
             onClick={handleLogin}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2"
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center gap-2 shadow-sm"
           >
             <User className="w-5 h-5" />
             Sign in with Google
